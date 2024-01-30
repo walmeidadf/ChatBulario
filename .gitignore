@@ -1,0 +1,5 @@
+# Ignoring dataset and databases directories
+dataset/
+db/
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
