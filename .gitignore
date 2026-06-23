@@ -1,5 +1,20 @@
-# Ignoring dataset and databases directories
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+
+# Dataset — PDFs, artefatos de processamento e outputs (não versionados).
+# Use DVC, Hugging Face Datasets ou storage externo para versionar os dados.
 dataset/
-db/
-.ipynb_checkpoints
-*/.ipynb_checkpoints/*
+
+# Outputs de scripts de discovery (exploratórios, não reproduzíveis)
+discovery_out/
+
+# Tentativa anterior — mantida localmente como referência, não versionada
+archive/

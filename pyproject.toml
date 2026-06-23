@@ -1,0 +1,11 @@
+[project]
+name = "chatbulario-discovery"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "openai>=2.43.0",
+    "playwright>=1.60.0",
+    "pymupdf>=1.27.2.3",
+    "python-dotenv>=1.2.2",
+    "rapidfuzz>=3.14.5",
+]
