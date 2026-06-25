@@ -12,31 +12,39 @@ Código em `benchmark_providers.py`, resultado em `dataset/work_data/benchmark_p
 
 ## Resultados
 
-| Provider | Modelo | Qualidade | Latência | Custo (5k bulas) | ETA | Gargalo |
+| Provider | Modelo | Qualidade | Latência | Custo (8k bulas) | ETA | Gargalo |
 |---|---|---|---|---|---|---|
-| `openai` | gpt-4o-mini | 7/8 campos | 5,3s/req | ~$1,07 | ~20 min | TPM (200K) |
+| `openai` | gpt-4o-mini | 7/8 campos | 5,3s/req | ~$1,40 | ~20 min | TPM (200K) e RPD (10K) |
 | `groq` | llama-3.1-8b-instant | 7/8 campos | 0,55s/req | $0,00 (free) | ~12 h | TPM (6K) |
 | `cerebras` | gpt-oss-120b | **inviável** | — | $0,00 (free) | ~6 dias | TPD (1M) |
 
-**Cerebras descartado:** `gpt-oss-120b` é modelo de raciocínio — gasta ~633 tokens internos antes de gerar a resposta visível. Com `max_tokens=512` retorna tudo null; com `max_tokens=3000` funciona, mas TPD de 1M tokens limita a ~728 bulas/dia. Cerebras removido do `.env.example`.
+**Cerebras descartado:** modelo de raciocínio — gasta ~633 tokens internos antes da resposta.
+Com `max_tokens=3000` funciona, mas TPD de 1M limita a ~728 bulas/dia. Removido do `.env.example`.
 
-**OpenAI e Groq têm a mesma qualidade** (7/8 campos preenchidos — o campo "fabricante" frequentemente não aparece na seção de identificação). A diferença é custo vs. tempo.
+**OpenAI e Groq têm a mesma qualidade** (7/8 campos — "fabricante" frequentemente ausente
+na seção de identificação). A diferença é custo vs. tempo.
 
 ## Rate limits relevantes
 
+**OpenAI gpt-4o-mini:**
+- 500 RPM / 200K TPM / **10.000 RPD** (tier 1)
+- TPM é o gargalo habitual: retries com backoff exponencial (1s→32s, 6 tentativas)
+- **RPD é o risco real para 8k bulas:** retries de TPM consomem requests extras.
+  O código distingue os dois: TPM → retry; RPD → falha rápida (sem retry inútil).
+  Run interrompido por RPD é retomável — output gravado incrementalmente.
+
 **Groq llama-3.1-8b-instant (free):**
 - 30 RPM / 6K TPM / 14.4K RPD / 500K TPD
-- Gargalo real é TPM: com ~821 tokens/req → ~7 req/min efetivo
-- Para `process_all.py`: usar `--concorrencia 7`
-
-**OpenAI gpt-4o-mini:**
-- 500 RPM / 200K TPM (tier 1)
-- Sem gargalo prático para este volume
+- Gargalo real: TPM → ~7 req/min efetivo → usar `--concorrencia 7`
+- Para 8k bulas: ETA ~12h (seguro para RPD de 14.4K)
 
 ## Implementação
 
-`process/meta_llm.py` usa OpenAI SDK (compatível com OpenAI e Groq via mesma interface).
-Funções: `extract_meta_llm()` (síncrono) e `extract_meta_llm_batch()` (async com semáforo).
-`max_tokens` por provider definido em `_PROVIDERS` dict (Cerebras precisa de 3000 por causa do reasoning).
+`process/meta_llm.py` usa OpenAI SDK com `base_url` configurável por provider.
+Funções principais:
+- `extract_meta_llm()` — síncrono, para testes via CLI
+- `extract_meta_llm_stream()` — async generator, usado por `process_all.py`;
+  produz `(índice, meta)` conforme cada chamada termina; falha individual → metadados
+  vazios, nunca derruba o lote
 
 Ver [[pipeline-architecture]].

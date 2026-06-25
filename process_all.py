@@ -27,7 +27,7 @@ load_dotenv(Path(__file__).parent / ".env")
 sys.path.insert(0, str(Path(__file__).parent / "process"))
 
 from extract import extract_text  # noqa: E402
-from meta_llm import extract_meta_llm_batch  # noqa: E402
+from meta_llm import extract_meta_llm_stream  # noqa: E402
 from segment import segment  # noqa: E402
 from split import split_primeira_bula  # noqa: E402
 
@@ -154,38 +154,50 @@ async def main(args: argparse.Namespace) -> None:
 
     print(f"Textos extraídos com sucesso: {len(textos_extraidos)}")
 
-    # 2) extração LLM de metadados (async, paralela)
-    if args.sem_llm:
-        metas_llm = [{} for _ in textos_extraidos]
-        print("LLM ignorado (--sem-llm)")
-    else:
-        print(f"Extraindo metadados com LLM (concorrência={args.concorrencia})...")
-        identificacoes = [segment(t)["identificacao"] for t in textos_extraidos]
-        metas_llm = await extract_meta_llm_batch(
-            identificacoes, concorrencia=args.concorrencia
-        )
-        print("LLM concluído.")
-
-    # 3) segmentação + escrita do output
+    # 2+3) extração LLM + segmentação + escrita incremental do output
+    #
+    # Cada bula é gravada assim que fica pronta (flush por item), com progresso
+    # impresso periodicamente. Se o run for interrompido, o que já foi escrito
+    # está salvo — e na próxima execução esses registros são pulados.
+    total = len(entradas_validas)
     n_linhas = 0
     n_completas = 0
+    n_feitas = 0
+
+    def escrever(idx: int, meta_llm: dict, f_ds, f_qc) -> None:
+        nonlocal n_linhas, n_completas
+        entrada, ext = entradas_validas[idx]
+        linhas, qc = processar_texto(textos_extraidos[idx], entrada, meta_llm)
+        qc["n_caracteres"] = ext["n_caracteres"]
+        qc["n_paginas"] = ext["n_paginas"]
+        for linha in linhas:
+            f_ds.write(json.dumps(linha, ensure_ascii=False) + "\n")
+        f_qc.write(json.dumps(qc, ensure_ascii=False) + "\n")
+        f_ds.flush()
+        f_qc.flush()
+        n_linhas += len(linhas)
+        if qc["completa"]:
+            n_completas += 1
+
     with DATASET_OUT.open("a") as f_ds, QC_OUT.open("a") as f_qc:
-        for (entrada, ext), texto, meta_llm in zip(entradas_validas, textos_extraidos, metas_llm):
-            linhas, qc = processar_texto(texto, entrada, meta_llm)
+        if args.sem_llm:
+            print("LLM ignorado (--sem-llm)")
+            for idx in range(total):
+                escrever(idx, {}, f_ds, f_qc)
+                n_feitas += 1
+                if n_feitas % 100 == 0 or n_feitas == total:
+                    print(f"  {n_feitas}/{total} bulas ({n_linhas} linhas)", flush=True)
+        else:
+            print(f"Extraindo metadados com LLM (concorrência={args.concorrencia})...")
+            identificacoes = [segment(t)["identificacao"] for t in textos_extraidos]
+            async for idx, meta_llm in extract_meta_llm_stream(
+                identificacoes, concorrencia=args.concorrencia
+            ):
+                escrever(idx, meta_llm, f_ds, f_qc)
+                n_feitas += 1
+                if n_feitas % 25 == 0 or n_feitas == total:
+                    print(f"  LLM {n_feitas}/{total} bulas ({n_linhas} linhas)", flush=True)
 
-            # adiciona n_chars/páginas ao QC
-            qc["n_caracteres"] = ext["n_caracteres"]
-            qc["n_paginas"] = ext["n_paginas"]
-
-            for linha in linhas:
-                f_ds.write(json.dumps(linha, ensure_ascii=False) + "\n")
-            f_qc.write(json.dumps(qc, ensure_ascii=False) + "\n")
-
-            n_linhas += len(linhas)
-            if qc["completa"]:
-                n_completas += 1
-
-    total = len(entradas_validas)
     print(f"\nConcluído: {total} bulas processadas")
     print(f"  completas (9/9 seções): {n_completas} ({100*n_completas//max(total,1)}%)")
     print(f"  linhas no dataset: {n_linhas}")

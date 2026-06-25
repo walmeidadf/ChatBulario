@@ -22,7 +22,7 @@ PDF  →  extract  →  split_primeira_bula  →  segment  →  meta_llm  →  d
 | `extract.py` | PyMuPDF → texto limpo | Remove cabeçalho/rodapé RDC 47/2009; reconecta hifenização de quebra de linha com regex `(\w)-\n(\w)` |
 | `split.py` | Isola 1ª bula em PDFs multi-bula | Ancora em "IDENTIFICAÇÃO DO MEDICAMENTO"; alguns PDFs têm 10-20+ bulas concatenadas |
 | `segment.py` | Localiza as 9 seções RDC 47/2009 | Fuzzy matching (rapidfuzz, limiar=80); `_coleta_pergunta()` acumula até 3 linhas para achar `?` (pergunta 9 sempre quebra em 2 linhas); cobertura de 9/9 seções: ~81% das bulas |
-| `meta_llm.py` | Extrai metadados estruturados da seção de identificação | Usa OpenAI SDK com suporte a múltiplos providers via `LLM_PROVIDER` env var; 8 campos: nome_comercial, fabricante, principio_ativo, forma_farmaceutica, via_administracao, apresentacao, composicao, uso |
+| `meta_llm.py` | Extrai metadados estruturados da seção de identificação | OpenAI SDK multi-provider; retry backoff em TPM; falha rápida em RPD; `extract_meta_llm_stream()` é async generator — produz `(idx, meta)` por ordem de conclusão, nunca derruba o lote |
 | `structure.py` | Orquestrador por PDF individual | Útil para inspeção manual; `process_all.py` é o caminho para produção |
 
 ## Script principal: `process_all.py`
@@ -34,8 +34,14 @@ Flags:
 - `--concorrencia N` — workers async paralelos para LLM (padrão 20)
 
 Outputs em `dataset/work_data/`:
-- `dataset.jsonl` — **1 linha por (registro × pergunta)**; todos os metadados embutidos em cada linha (flat, sem joins)
+- `dataset.jsonl` — **1 linha por (registro × pergunta)**; todos os metadados embutidos em cada linha (flat, sem joins); **gravação incremental** — cada bula é escrita assim que o LLM retorna, com flush por item
 - `qc.jsonl` — 1 linha por bula com métricas de qualidade
+
+## Resiliência e retomada
+
+Run interrompido (crash, RPD esgotado, Ctrl+C) não perde trabalho: `dataset.jsonl`
+já tem tudo que foi processado. Basta rodar `process_all.py` novamente — `ja_processados()`
+pula os registros já presentes. Para refazer tudo: `--re-run`.
 
 ## Schema do dataset.jsonl
 

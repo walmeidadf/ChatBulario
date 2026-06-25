@@ -26,10 +26,11 @@ import asyncio
 import json
 import os
 import re
+import random
 from pathlib import Path
 
 from dotenv import load_dotenv
-from openai import AsyncOpenAI, OpenAI
+from openai import AsyncOpenAI, OpenAI, RateLimitError
 
 # carrega .env da raiz do projeto (dois níveis acima de process/)
 load_dotenv(Path(__file__).parent.parent / ".env")
@@ -187,14 +188,24 @@ async def _extract_one(
 ) -> dict:
     if not identificacao or not identificacao.strip():
         return {c: None for c in _CAMPOS}
-    async with sem:
-        resp = await client.chat.completions.create(
-            model=model,
-            messages=_build_messages(identificacao),
-            max_tokens=max_tokens,
-            temperature=0,
-        )
-        return _parse_resposta(resp.choices[0].message.content or "")
+    for attempt in range(6):
+        try:
+            async with sem:
+                resp = await client.chat.completions.create(
+                    model=model,
+                    messages=_build_messages(identificacao),
+                    max_tokens=max_tokens,
+                    temperature=0,
+                )
+            return _parse_resposta(resp.choices[0].message.content or "")
+        except RateLimitError as exc:
+            msg = str(exc).lower()
+            if "per day" in msg or "rpd" in msg:
+                raise  # limite diário — retry não resolve
+            if attempt == 5:
+                raise
+            wait = (2 ** attempt) + random.random()
+            await asyncio.sleep(wait)
 
 
 async def extract_meta_llm_batch(
@@ -211,6 +222,37 @@ async def extract_meta_llm_batch(
     sem = asyncio.Semaphore(concorrencia)
     tasks = [_extract_one(client, cfg["model"], cfg["max_tokens"], t, sem) for t in textos]
     return await asyncio.gather(*tasks)
+
+
+async def extract_meta_llm_stream(
+    textos: list[str],
+    concorrencia: int = 20,
+):
+    """Igual a batch, mas é um async generator que produz (indice, meta)
+    conforme cada extração termina (ordem de conclusão, não de entrada).
+
+    Permite ao chamador gravar resultados em streaming. Falha persistente de
+    uma única chamada (após esgotar os retries) é capturada e devolvida como
+    metadados vazios — nunca derruba o lote inteiro.
+    """
+    cfg = _cfg()
+    kwargs = {"api_key": cfg["api_key"]}
+    if cfg["base_url"]:
+        kwargs["base_url"] = cfg["base_url"]
+
+    client = AsyncOpenAI(**kwargs)
+    sem = asyncio.Semaphore(concorrencia)
+
+    async def _one(i: int, t: str) -> tuple[int, dict]:
+        try:
+            return i, await _extract_one(client, cfg["model"], cfg["max_tokens"], t, sem)
+        except Exception as exc:  # noqa: BLE001 — resiliência: 1 falha não mata o lote
+            print(f"  ! LLM falhou (idx={i}): {exc}", flush=True)
+            return i, {c: None for c in _CAMPOS}
+
+    tasks = [asyncio.create_task(_one(i, t)) for i, t in enumerate(textos)]
+    for fut in asyncio.as_completed(tasks):
+        yield await fut
 
 
 # ---------------------------------------------------------------------------
