@@ -112,6 +112,26 @@ uv run python benchmark_providers.py --n 10 --providers openai groq
 - **PDFs scan (`provavel_scan=True`)**: ~22 arquivos são imagens sem texto extraível.
   Pulados silenciosamente. Decisão futura: OCR.
 
+- **Layout de número de pergunta varia entre bulas**: muitas bulas têm o número
+  numa linha isolada (`1.` numa linha, a pergunta na seguinte). `segment.py` lida
+  com isso (regex aceita número isolado + acumula até 4 linhas). Numa amostra
+  aleatória de 400 bulas novas: 87% com 9/9, 2% com 0/9.
+
+- **`qc.jsonl` acumula duplicatas para bulas 0/9**: a retomada (`ja_processados`)
+  se baseia no `dataset.jsonl`; bulas que segmentam para 0 seções não geram linha
+  lá, então re-escrevem no `qc.jsonl` a cada run. Fazer dedup ao final
+  (manter última entrada por registro). `dataset.jsonl` é a fonte de verdade e fica limpo.
+
+## Roadmap
+
+- [ ] **Cauda de ~2% (0/9 seções)**: passe pós-processamento só sobre registros 0/9,
+  com matcher mais tolerante (perguntas com hífen `- PARA QUE...`, sem numeração, ou
+  PDF em tabela com ordem de leitura embaralhada). Não mexer no caminho principal —
+  risco de falso positivo nos 93% que já funcionam.
+- [ ] **Dedup do `qc.jsonl`** ao final do processamento (keep-last por registro).
+- [ ] **Export para Parquet** (`export_parquet.py`) como artefato de publicação.
+- [ ] **OCR** para os ~22 PDFs `provavel_scan=True`.
+
 - **RPD OpenAI esgota silenciosamente no código antigo**: o `asyncio.gather` antigo
   deixava o processo travar sem gravar nada. Resolvido com `extract_meta_llm_stream`
   (escrita incremental). Se encontrar código usando `extract_meta_llm_batch` no

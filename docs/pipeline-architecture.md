@@ -21,7 +21,7 @@ PDF  →  extract  →  split_primeira_bula  →  segment  →  meta_llm  →  d
 |---|---|---|
 | `extract.py` | PyMuPDF → texto limpo | Remove cabeçalho/rodapé RDC 47/2009; reconecta hifenização de quebra de linha com regex `(\w)-\n(\w)` |
 | `split.py` | Isola 1ª bula em PDFs multi-bula | Ancora em "IDENTIFICAÇÃO DO MEDICAMENTO"; alguns PDFs têm 10-20+ bulas concatenadas |
-| `segment.py` | Localiza as 9 seções RDC 47/2009 | Fuzzy matching (rapidfuzz, limiar=80); `_coleta_pergunta()` acumula até 3 linhas para achar `?` (pergunta 9 sempre quebra em 2 linhas); cobertura de 9/9 seções: ~81% das bulas |
+| `segment.py` | Localiza as 9 seções RDC 47/2009 | Fuzzy matching (rapidfuzz, limiar=80); âncora aceita número isolado na linha (`1.` sozinho) e acumula até 4 linhas para achar `?`; cobertura de 9/9: ~87% das bulas novas (amostra 400), ~2% caem para 0/9 (layouts atípicos) |
 | `meta_llm.py` | Extrai metadados estruturados da seção de identificação | OpenAI SDK multi-provider; retry backoff em TPM; falha rápida em RPD; `extract_meta_llm_stream()` é async generator — produz `(idx, meta)` por ordem de conclusão, nunca derruba o lote |
 | `structure.py` | Orquestrador por PDF individual | Útil para inspeção manual; `process_all.py` é o caminho para produção |
 

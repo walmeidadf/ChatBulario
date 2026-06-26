@@ -36,9 +36,12 @@ FUZZY_MIN = 80
 
 # início de linha numerada: "N. ..." / "N) ..." / "N- ..."
 # NÃO exige "?" na mesma linha (perguntas longas quebram em 2-3 linhas).
-_RE_NUM_START = re.compile(r"^\s*(\d{1,2})\s*[\.\)\-]\s*(.+)$")
-# nº máximo de linhas acumuladas para formar uma pergunta multi-linha
-_MAX_LINHAS_PERGUNTA = 3
+# O conteúdo após o número é OPCIONAL (.*): em muitas bulas o PyMuPDF extrai o
+# número numa linha isolada ("1.") e a pergunta na(s) linha(s) seguinte(s).
+_RE_NUM_START = re.compile(r"^\s*(\d{1,2})\s*[\.\)\-]\s*(.*)$")
+# nº máximo de linhas acumuladas para formar uma pergunta multi-linha.
+# 4 cobre o pior caso: número isolado + pergunta 9 quebrada em 2 linhas.
+_MAX_LINHAS_PERGUNTA = 4
 # fim da bula: dizeres legais
 _RE_DIZERES = re.compile(r"DIZERES\s+LEGAIS", re.I)
 
