@@ -101,20 +101,33 @@ para preencher os registros com `nome_comercial=null`.
 # Coleta (retomável)
 uv run python collector.py
 
-# Processar todas as bulas (retomável — pula já processadas)
-uv run python process_all.py
-
-# Processar sem LLM (só segmentação — para testes ou quando sem crédito de API)
-uv run python process_all.py --sem-llm
-
-# Reprocessar tudo (inclusive já processados)
-uv run python process_all.py --re-run
-
-# Teste rápido com N bulas
-uv run python process_all.py --limite 5
-
 # Status da coleta
 uv run python status.py
+
+# --- Pipeline em 3 estágios (caminho atual) ---
+
+# A) Segmentação — grátis, re-rodável, ~5 min para 8k bulas
+uv run python segment_all.py
+
+# B) Enriquecimento LLM via Batch API — submete e retorna imediatamente
+uv run python enrich_all.py --async
+# Verificar status do batch (retorna o output_file_id quando concluído)
+uv run python enrich_all.py --status <batch_id>
+# Baixar e processar resultado (rodar quando status=completed)
+uv run python enrich_all.py --retrieve <batch_id>
+
+# C) Build do dataset final — determinístico, reescreve do zero
+uv run python build_dataset.py
+
+# --- Migração (one-time, apenas uma vez) ---
+# Preserva LLM já pago no dataset.jsonl → meta.jsonl antes de migrar
+uv run python migrate_meta.py
+
+# --- Pipeline legado (deprecated, mantido para referência) ---
+uv run python process_all.py          # monolítico, sofre com RPD OpenAI
+uv run python process_all.py --sem-llm
+uv run python process_all.py --re-run
+uv run python process_all.py --limite 5
 
 # Benchmark de providers LLM
 uv run python benchmark_providers.py --n 10 --providers openai groq
@@ -127,12 +140,18 @@ uv run python benchmark_providers.py --n 10 --providers openai groq
 | Arquivo | Papel |
 |---|---|
 | `collector.py` | Coleta via Playwright + API ANVISA (bypass Cloudflare) |
-| `process_all.py` | Orquestrador: PDF → dataset.jsonl, escrita incremental |
-| `process/meta_llm.py` | Extração de metadados via LLM; retry TPM; falha rápida em RPD |
+| `segment_all.py` | Estágio A: PDF → segments.jsonl + qc.jsonl (sem LLM) |
+| `enrich_all.py` | Estágio B: segments.jsonl → meta.jsonl via OpenAI Batch API |
+| `build_dataset.py` | Estágio C: join segments ⋈ meta → dataset.jsonl |
+| `migrate_meta.py` | One-time: extrai meta do dataset.jsonl existente → meta.jsonl |
+| `process/meta_llm.py` | Extração de metadados LLM; retry TPM; falha rápida em RPD |
 | `process/segment.py` | Fuzzy matching das 9 seções RDC 47/2009 |
-| `dataset/raw_data/.../index.jsonl` | Índice de bulas coletadas (não versionado) |
-| `dataset/work_data/dataset.jsonl` | Output principal (não versionado) |
+| `dataset/work_data/segments.jsonl` | **Artefato A** — 1 linha/bula com seções (não versionado) |
+| `dataset/work_data/meta.jsonl` | **Artefato B** — metadados LLM; NUNCA re-gerar sem necessidade |
+| `dataset/work_data/dataset.jsonl` | **Artefato C** — derivado, 1 linha/registro×pergunta (não versionado) |
 | `dataset/work_data/qc.jsonl` | Métricas de qualidade por bula (não versionado) |
+| `dataset/raw_data/.../index.jsonl` | Índice de bulas coletadas (não versionado) |
+| `process_all.py` | **Deprecated** — monolítico, sofre com RPD; mantido para referência |
 
 ---
 
@@ -161,8 +180,8 @@ uv run python benchmark_providers.py --n 10 --providers openai groq
 
 ## Roadmap
 
-- [ ] **Refatorar para pipeline em 3 artefatos** (segment_all / enrich_all / build_dataset).
-  Ver plano de migração abaixo.
+- [x] **Refatorar para pipeline em 3 artefatos** — `segment_all.py`, `enrich_all.py`
+  (Batch API), `build_dataset.py` implementados. Ver sequência de execução abaixo.
 - [ ] **Cauda de ~2% (0/9 seções)**: matcher mais tolerante para registros 0/9
   (perguntas com hífen `- PARA QUE...`, sem numeração, ou PDF em tabela com ordem
   embaralhada). Vira trivial com a pipeline em estágios: tuna `segment.py` → roda A → B → C.
