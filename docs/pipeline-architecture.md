@@ -1,50 +1,91 @@
 ---
 name: pipeline-architecture
 description: Arquitetura do pipeline de processamento de PDFs do ChatBulário
-metadata: 
+metadata:
   node_type: memory
   type: project
   originSessionId: 0ee6a010-2d25-4b93-8ade-994bfd586e1d
 ---
 
-Pipeline construído e commitado em 2026-06-23. Todas as etapas estão funcionais.
+Atualizado em 2026-06-24. Pipeline refatorado para 3 estágios independentes.
 
 ## Fluxo
 
 ```
-PDF  →  extract  →  split_primeira_bula  →  segment  →  meta_llm  →  dataset.jsonl
+PDF  →  (A) segment_all  →  segments.jsonl
+                                  │
+                             (B) enrich_all  →  meta.jsonl
+                                                     │
+                                              (C) build_dataset  →  dataset.jsonl
 ```
 
-## Módulos (`process/`)
+## Estágio A — `segment_all.py` (grátis, re-rodável)
 
-| Arquivo | Função | Decisões relevantes |
+| Módulo | Função | Decisões relevantes |
 |---|---|---|
 | `extract.py` | PyMuPDF → texto limpo | Remove cabeçalho/rodapé RDC 47/2009; reconecta hifenização de quebra de linha com regex `(\w)-\n(\w)` |
-| `split.py` | Isola 1ª bula em PDFs multi-bula | Ancora em "IDENTIFICAÇÃO DO MEDICAMENTO"; alguns PDFs têm 10-20+ bulas concatenadas |
-| `segment.py` | Localiza as 9 seções RDC 47/2009 | Fuzzy matching (rapidfuzz, limiar=80); âncora aceita número isolado na linha (`1.` sozinho) e acumula até 4 linhas para achar `?`; cobertura de 9/9: ~87% das bulas novas (amostra 400), ~2% caem para 0/9 (layouts atípicos) |
-| `meta_llm.py` | Extrai metadados estruturados da seção de identificação | OpenAI SDK multi-provider; retry backoff em TPM; falha rápida em RPD; `extract_meta_llm_stream()` é async generator — produz `(idx, meta)` por ordem de conclusão, nunca derruba o lote |
-| `structure.py` | Orquestrador por PDF individual | Útil para inspeção manual; `process_all.py` é o caminho para produção |
+| `split.py` | Isola 1ª bula em PDFs multi-bula | Âncora em "IDENTIFICAÇÃO DO MEDICAMENTO"; alguns PDFs têm 10-20+ bulas concatenadas |
+| `segment.py` | Localiza as 9 seções RDC 47/2009 | Fuzzy matching (rapidfuzz, limiar=80); aceita número isolado na linha (`1.` sozinho) + acumula até 4 linhas para achar `?`; cobertura: ~87% com 9/9, ~2% com 0/9 (layouts atípicos) |
 
-## Script principal: `process_all.py`
+Output: `segments.jsonl` (1 linha/bula) + `qc.jsonl`.
+Idempotente por registro — re-rodar pula o que já está em `segments.jsonl`.
 
-Flags:
-- `--limite N` — processa só N primeiros (para testes)
-- `--sem-llm` — pula extração LLM (mais rápido)
-- `--re-run` — reprocessa registros já no output
-- `--concorrencia N` — workers async paralelos para LLM (padrão 20)
+Schema de `segments.jsonl`:
+```json
+{
+  "registro": "100290031",
+  "nomeProduto": "RENITEC®",
+  "categoriaRegulatoria": "Referência",
+  "principioAtivo": "MALEATO DE ENALAPRIL",
+  "classeTerapeutica": "INIBIDOR DA ECA",
+  "expediente": "...",
+  "identificacao": "IDENTIFICAÇÃO DO MEDICAMENTO\n...",
+  "secoes": [{"id": 1, "pergunta": "Para que...", "resposta": "...", "score": 100.0}],
+  "secoes_encontradas": 9,
+  "dizeres_legais": "...",
+  "n_caracteres": 12000,
+  "n_paginas": 6,
+  "provavel_scan": false,
+  "erro": null
+}
+```
 
-Outputs em `dataset/work_data/`:
-- `dataset.jsonl` — **1 linha por (registro × pergunta)**; todos os metadados embutidos em cada linha (flat, sem joins); **gravação incremental** — cada bula é escrita assim que o LLM retorna, com flush por item
-- `qc.jsonl` — 1 linha por bula com métricas de qualidade
+## Estágio B — `enrich_all.py` (OpenAI Batch API, 1× por bula)
 
-## Resiliência e retomada
+Lê `segments.jsonl`, filtra `secoes_encontradas >= 1`, e chama o LLM para extrair
+metadados estruturados da seção de identificação de cada bula.
 
-Run interrompido (crash, RPD esgotado, Ctrl+C) não perde trabalho: `dataset.jsonl`
-já tem tudo que foi processado. Basta rodar `process_all.py` novamente — `ja_processados()`
-pula os registros já presentes. Para refazer tudo: `--re-run`.
+Usa a **OpenAI Batch API** (não a API síncrona):
+- Sem limite de RPD — a API síncrona tem 10.000 req/dia, insuficiente para 8k+ bulas
+- Até 50.000 requisições por submissão, resultado em até 24h, 50% de desconto
+- Fluxo: `--async` submete e retorna imediatamente; `--retrieve <id>` baixa quando pronto
 
-## Schema do dataset.jsonl
+Registros já em `meta.jsonl` são pulados — o LLM nunca é re-chamado para o que
+já foi pago. Iterar a segmentação (estágio A) não gera nova cobrança.
 
+Schema de `meta.jsonl`:
+```json
+{
+  "registro": "100290031",
+  "nome_comercial": "RENITEC®",
+  "fabricante": "ORGANON FARMACÊUTICA LTDA.",
+  "principio_ativo": "maleato de enalapril",
+  "forma_farmaceutica": "comprimidos",
+  "via_administracao": "oral",
+  "apresentacao": "caixas com 30 comprimidos...",
+  "composicao": "Cada comprimido contém...",
+  "uso": "adulto"
+}
+```
+
+## Estágio C — `build_dataset.py` (grátis, determinístico)
+
+Join `segments.jsonl ⋈ meta.jsonl` → `dataset.jsonl` no schema flat.
+Sempre reescreve do zero — `dataset.jsonl` é derivado, nunca editar à mão.
+Para registros sem meta (não enriquecidos), metadados LLM ficam nulos mas as seções
+segmentadas são incluídas.
+
+Schema de `dataset.jsonl` (1 linha por registro × pergunta):
 ```json
 {
   "registro": "100290031",
@@ -67,8 +108,25 @@ pula os registros já presentes. Para refazer tudo: `--re-run`.
 }
 ```
 
+## Resiliência
+
+- **A** é idempotente por registro — re-rodar não duplica.
+- **B** pula registros já em `meta.jsonl` — run interrompido é retomável sem re-bilhagem.
+- **C** é determinístico — reescreve do zero, sempre consistente.
+
+## Pipeline legado (`process_all.py`) — deprecated
+
+O `process_all.py` original acoplava extração + segmentação + LLM num único script.
+Foi substituído pelo pipeline em 3 estágios. Mantido para referência.
+Problemas que levaram à substituição:
+- Melhorar `segment.py` forçava `--re-run` (re-pagava todo o LLM)
+- API síncrona da OpenAI tem RPD de 10.000 req/dia — insuficiente para 8k+ bulas
+- LLM rodava em bulas 0/9 (chamadas desperdiçadas sem output)
+
 ## Qualidade do texto extraído
 
-Boa. O único artefato real era hifenização de quebra de linha (ex: `cirurgião-\ndentista`), corrigido deterministicamente em `extract.py`. "Linhas curtas" detectadas são bullets legítimos — não problema. LLM para limpeza de texto foi avaliado e **não vale** (texto já está pronto para NLP).
+Boa. O único artefato real era hifenização de quebra de linha (ex: `cirurgião-\ndentista`),
+corrigido deterministicamente em `extract.py`. LLM para limpeza de texto foi avaliado
+e não vale — texto já está pronto para NLP.
 
 Ver [[anvisa-bulario-api]] para coleta, [[llm-providers]] para escolha de provider.
