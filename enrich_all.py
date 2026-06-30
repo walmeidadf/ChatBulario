@@ -91,14 +91,15 @@ def _batch_input_jsonl(pendentes: list[dict], cfg: dict) -> bytes:
     return "\n".join(linhas).encode()
 
 
-def submeter(client: OpenAI, pendentes: list[dict], cfg: dict) -> str:
-    print(f"Preparando batch com {len(pendentes)} registros...")
-    conteudo = _batch_input_jsonl(pendentes, cfg)
-    tamanho_mb = len(conteudo) / 1024 / 1024
-    print(f"  tamanho do arquivo: {tamanho_mb:.1f} MB")
+_CHUNK_SIZE = 800  # requisições por batch (limite: ~2M tokens enfileirados por org)
 
+
+def _submeter_chunk(client: OpenAI, chunk: list[dict], cfg: dict, idx: int) -> str:
+    conteudo = _batch_input_jsonl(chunk, cfg)
+    tamanho_mb = len(conteudo) / 1024 / 1024
+    print(f"  chunk {idx}: {len(chunk)} registros, {tamanho_mb:.1f} MB")
     arquivo = client.files.create(
-        file=("batch_input.jsonl", conteudo),
+        file=(f"batch_input_{idx}.jsonl", conteudo),
         purpose="batch",
     )
     batch = client.batches.create(
@@ -106,8 +107,30 @@ def submeter(client: OpenAI, pendentes: list[dict], cfg: dict) -> str:
         endpoint="/v1/chat/completions",
         completion_window="24h",
     )
-    print(f"Batch criado: {batch.id}  status={batch.status}")
+    print(f"  batch criado: {batch.id}  status={batch.status}")
     return batch.id
+
+
+def submeter(client: OpenAI, pendentes: list[dict], cfg: dict) -> str:
+    """Submete em chunks para respeitar o limite de 2M tokens enfileirados da OpenAI."""
+    chunks = [pendentes[i:i + _CHUNK_SIZE] for i in range(0, len(pendentes), _CHUNK_SIZE)]
+    print(f"Preparando {len(chunks)} batch(es) com {len(pendentes)} registros total...")
+
+    ids = []
+    for i, chunk in enumerate(chunks, 1):
+        batch_id = _submeter_chunk(client, chunk, cfg, i)
+        ids.append(batch_id)
+
+    if len(ids) == 1:
+        return ids[0]
+
+    # Salva todos os ids para acompanhamento
+    ids_path = Path("dataset/work_data/batch_ids.txt")
+    with ids_path.open("w") as f:
+        for bid in ids:
+            f.write(bid + "\n")
+    print(f"\n{len(ids)} batches submetidos. IDs salvos em {ids_path}")
+    return ids[0]  # retorna o primeiro; retrieve precisa ser rodado para cada um
 
 
 def status(client: OpenAI, batch_id: str) -> None:
@@ -211,10 +234,17 @@ def main() -> None:
     batch_id = submeter(client, pendentes, cfg)
 
     if args.async_mode:
-        print(f"\nBatch submetido. Retorne em até 24h e rode:")
-        print(f"  uv run python enrich_all.py --retrieve {batch_id}")
-        print(f"\nPara verificar o status:")
-        print(f"  uv run python enrich_all.py --status {batch_id}")
+        ids_path = Path("dataset/work_data/batch_ids.txt")
+        if ids_path.exists():
+            ids = ids_path.read_text().splitlines()
+        else:
+            ids = [batch_id]
+        print(f"\nBatches submetidos. Retorne em até 24h e rode para cada um:")
+        for bid in ids:
+            print(f"  uv run python enrich_all.py --retrieve {bid}")
+        print(f"\nPara verificar status:")
+        for bid in ids:
+            print(f"  uv run python enrich_all.py --status {bid}")
         return
 
     output_file_id = aguardar(client, batch_id)

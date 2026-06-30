@@ -59,6 +59,7 @@ Usa a **OpenAI Batch API** (não a API síncrona):
 - Sem limite de RPD — a API síncrona tem 10.000 req/dia, insuficiente para 8k+ bulas
 - Até 50.000 requisições por submissão, resultado em até 24h, 50% de desconto
 - Fluxo: `--async` submete e retorna imediatamente; `--retrieve <id>` baixa quando pronto
+- **Limite de tokens enfileirados:** 2M tokens por organização para `gpt-4o-mini`. Com ~2.400 tokens/bula, o máximo seguro por batch é ~800 requisições. O script divide automaticamente em chunks de 800 e salva todos os batch IDs em `dataset/work_data/batch_ids.txt`.
 
 Registros já em `meta.jsonl` são pulados — o LLM nunca é re-chamado para o que
 já foi pago. Iterar a segmentação (estágio A) não gera nova cobrança.
