@@ -193,8 +193,11 @@ renitec = ds["train"].filter(lambda x: x["registro"] == "100290031")
 
 ## Licença
 
-- **Dados originais (ANVISA)**: documentos públicos
-- **Dataset compilado**: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- **Texto das bulas**: redigido pelas empresas fabricantes e publicado pela ANVISA no
+  Bulário Eletrônico. As bulas não são atos oficiais (art. 8º da Lei 9.610/98) — o direito
+  autoral sobre o texto permanece com os respectivos fabricantes. O texto é reproduzido aqui
+  para fins de pesquisa em PLN, a partir de fonte de acesso público.
+- **Dataset compilado** (segmentação, estrutura, metadados): [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 - **Código**: MIT
 
 ## Citação
