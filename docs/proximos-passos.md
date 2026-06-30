@@ -15,7 +15,7 @@ e do pipeline de publicação no HuggingFace.
 - [x] `build_dataset.py` — join → `dataset.jsonl` (68.938 pares pergunta/resposta)
 - [x] `export.py` — splits 80/10/10 agrupados por medicamento + parquet + upload HF
 - [x] `dataset_card.md` — card do HuggingFace com frontmatter YAML
-- [ ] **Upload efetivo ao HuggingFace** — rodar `uv run python export.py --upload` com `HF_TOKEN`
+- [ ] **Upload efetivo ao HuggingFace** — rodar `uv run python src/export.py --upload` com `HF_TOKEN`
 
 ### Números da v1
 
@@ -72,8 +72,8 @@ e do pipeline de publicação no HuggingFace.
 ## Fluxo completo (re-rodar)
 
 ```bash
-uv run python segment_all.py
-uv run python enrich_all.py --async          # + --status / --retrieve por batch
-uv run python build_dataset.py
-uv run python export.py --upload
+uv run python src/segment_all.py
+uv run python src/enrich_all.py --async          # + --status / --retrieve por batch
+uv run python src/build_dataset.py
+uv run python src/export.py --upload
 ```

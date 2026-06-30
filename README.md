@@ -206,23 +206,23 @@ https://dados.anvisa.gov.br/dados/DADOS_ABERTOS_MEDICAMENTOS.zip
 
 ```bash
 # 1. Coleta (~8k PDFs, retomável)
-uv run python collector.py
-uv run python status.py              # acompanha progresso
+uv run python src/collector.py
+uv run python src/status.py              # acompanha progresso
 
 # 2A. Segmentação — grátis, ~5 min para 8k bulas
-uv run python segment_all.py
+uv run python src/segment_all.py
 
 # 2B. Enriquecimento LLM via Batch API (~US$ 1 para 8k bulas)
-uv run python enrich_all.py --async          # submete batches, retorna imediatamente
-uv run python enrich_all.py --status <id>   # verifica conclusão (até 24h)
-uv run python enrich_all.py --retrieve <id> # baixa resultado e grava meta.jsonl
+uv run python src/enrich_all.py --async          # submete batches, retorna imediatamente
+uv run python src/enrich_all.py --status <id>   # verifica conclusão (até 24h)
+uv run python src/enrich_all.py --retrieve <id> # baixa resultado e grava meta.jsonl
 
 # 2C. Build do dataset final
-uv run python build_dataset.py
+uv run python src/build_dataset.py
 
 # 2D. Export + publicação no HuggingFace
-uv run python export.py              # gera parquets localmente
-uv run python export.py --upload     # gera e publica (requer HF_TOKEN no .env)
+uv run python src/export.py              # gera parquets localmente
+uv run python src/export.py --upload     # gera e publica (requer HF_TOKEN no .env)
 ```
 
 ---
@@ -230,30 +230,31 @@ uv run python export.py --upload     # gera e publica (requer HF_TOKEN no .env)
 ## Estrutura do repositório
 
 ```
-collector.py            Coleta as bulas do paciente (Playwright + API ANVISA)
-import_existing.py      Importa PDFs já baixados para o índice/checkpoint
-status.py               Mostra o progresso da coleta
-segment_all.py          Estágio A: PDF → segments.jsonl + qc.jsonl (sem LLM)
-enrich_all.py           Estágio B: segments.jsonl → meta.jsonl (OpenAI Batch API)
-build_dataset.py        Estágio C: join segments ⋈ meta → dataset.jsonl
-export.py               Estágio D: dataset.jsonl → parquet + upload HuggingFace
-dataset_card.md         Dataset card do HuggingFace (publicado como README.md no HF)
-migrate_meta.py         One-time: extrai meta do dataset.jsonl legado → meta.jsonl
-benchmark_providers.py  Compara providers LLM (qualidade, latência, custo)
-process_all.py          [deprecated] Pipeline monolítico original
-
-process/
-  extract.py            Extração de texto e limpeza de artefatos (PyMuPDF)
-  split.py              Isolamento da primeira bula em PDFs multi-bula
-  segment.py            Segmentação nas 9 seções RDC 47/2009 (fuzzy matching)
-  meta_llm.py           Extração de metadados via LLM (prompt + parsing)
-  structure.py          Orquestrador por PDF individual (inspeção manual)
+src/
+  collector.py            Coleta as bulas do paciente (Playwright + API ANVISA)
+  import_existing.py      Importa PDFs já baixados para o índice/checkpoint
+  status.py               Mostra o progresso da coleta
+  segment_all.py          Estágio A: PDF → segments.jsonl + qc.jsonl (sem LLM)
+  enrich_all.py           Estágio B: segments.jsonl → meta.jsonl (OpenAI Batch API)
+  build_dataset.py        Estágio C: join segments ⋈ meta → dataset.jsonl
+  export.py               Estágio D: dataset.jsonl → parquet + upload HuggingFace
+  migrate_meta.py         One-time: extrai meta do dataset.jsonl legado → meta.jsonl
+  benchmark_providers.py  Compara providers LLM (qualidade, latência, custo)
+  process_all.py          [deprecated] Pipeline monolítico original
+  process/
+    extract.py            Extração de texto e limpeza de artefatos (PyMuPDF)
+    split.py              Isolamento da primeira bula em PDFs multi-bula
+    segment.py            Segmentação nas 9 seções RDC 47/2009 (fuzzy matching)
+    meta_llm.py           Extração de metadados via LLM (prompt + parsing)
+    structure.py          Orquestrador por PDF individual (inspeção manual)
 
 docs/
   pipeline-architecture.md   Decisões de arquitetura do pipeline
   proximos-passos.md         Continuidade: pendências, melhorias planejadas
   anvisa-bulario-api.md      Detalhes da API e bypass Cloudflare
   llm-providers.md           Benchmark de providers LLM (OpenAI vs Groq vs Cerebras)
+
+dataset_card.md         Dataset card do HuggingFace (publicado como README.md no HF)
 
 dataset/                Não versionado — gerado localmente
   raw_data/

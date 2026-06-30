@@ -32,8 +32,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import AsyncOpenAI, OpenAI, RateLimitError
 
-# carrega .env da raiz do projeto (dois níveis acima de process/)
-load_dotenv(Path(__file__).parent.parent / ".env")
+# carrega .env da raiz do projeto (três níveis acima: process/ → src/ → raiz)
+load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 # ---------------------------------------------------------------------------
 # Configuração de provider

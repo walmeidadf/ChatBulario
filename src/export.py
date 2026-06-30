@@ -32,7 +32,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 WORK_DIR = BASE_DIR / "dataset" / "work_data"
 
 SPLIT_RATIOS = {"train": 0.80, "validation": 0.10, "test": 0.10}

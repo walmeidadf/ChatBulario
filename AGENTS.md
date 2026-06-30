@@ -82,32 +82,32 @@ Sem branches de feature. Commits direto na main.
 
 ```bash
 # Coleta (retomável)
-uv run python collector.py
-uv run python status.py              # acompanha progresso
+uv run python src/collector.py
+uv run python src/status.py              # acompanha progresso
 
 # --- Pipeline em 3 estágios ---
 
 # A) Segmentação — grátis, re-rodável, ~5 min para 8k bulas
-uv run python segment_all.py
+uv run python src/segment_all.py
 
 # B) Enriquecimento LLM via Batch API
-uv run python enrich_all.py --async          # submete o batch, imprime o batch_id
-uv run python enrich_all.py --status <id>   # verifica status
-uv run python enrich_all.py --retrieve <id> # baixa resultado → meta.jsonl
+uv run python src/enrich_all.py --async          # submete o batch, imprime o batch_id
+uv run python src/enrich_all.py --status <id>   # verifica status
+uv run python src/enrich_all.py --retrieve <id> # baixa resultado → meta.jsonl
 
 # C) Build do dataset final
-uv run python build_dataset.py
+uv run python src/build_dataset.py
 
 # --- Migração one-time (já rodado; manter para referência) ---
 # Extrai meta do dataset.jsonl legado → meta.jsonl (preserva LLM já pago)
-uv run python migrate_meta.py
+uv run python src/migrate_meta.py
 
 # --- Pipeline legado (deprecated) ---
-uv run python process_all.py
-uv run python process_all.py --limite 5 --sem-llm
+uv run python src/process_all.py
+uv run python src/process_all.py --limite 5 --sem-llm
 
 # Benchmark de providers LLM
-uv run python benchmark_providers.py --n 10 --providers openai groq
+uv run python src/benchmark_providers.py --n 10 --providers openai groq
 ```
 
 ---
@@ -116,19 +116,20 @@ uv run python benchmark_providers.py --n 10 --providers openai groq
 
 | Arquivo | Papel |
 |---|---|
-| `collector.py` | Coleta via Playwright + API ANVISA (bypass Cloudflare) |
-| `segment_all.py` | Estágio A: PDF → segments.jsonl + qc.jsonl (sem LLM) |
-| `enrich_all.py` | Estágio B: segments.jsonl → meta.jsonl via OpenAI Batch API |
-| `build_dataset.py` | Estágio C: join segments ⋈ meta → dataset.jsonl |
-| `migrate_meta.py` | One-time: extrai meta do dataset.jsonl legado → meta.jsonl |
-| `process/segment.py` | Fuzzy matching das 9 seções RDC 47/2009 |
-| `process/meta_llm.py` | Extração LLM; retry TPM; falha rápida em RPD; Batch API via enrich_all.py |
+| `src/collector.py` | Coleta via Playwright + API ANVISA (bypass Cloudflare) |
+| `src/segment_all.py` | Estágio A: PDF → segments.jsonl + qc.jsonl (sem LLM) |
+| `src/enrich_all.py` | Estágio B: segments.jsonl → meta.jsonl via OpenAI Batch API |
+| `src/build_dataset.py` | Estágio C: join segments ⋈ meta → dataset.jsonl |
+| `src/export.py` | Estágio D: dataset.jsonl → parquet + upload HuggingFace |
+| `src/migrate_meta.py` | One-time: extrai meta do dataset.jsonl legado → meta.jsonl |
+| `src/process/segment.py` | Fuzzy matching das 9 seções RDC 47/2009 |
+| `src/process/meta_llm.py` | Extração LLM; retry TPM; falha rápida em RPD; Batch API via enrich_all.py |
 | `dataset/work_data/segments.jsonl` | **Artefato A** — 1 linha/bula com seções (não versionado) |
 | `dataset/work_data/meta.jsonl` | **Artefato B** — metadados LLM; NUNCA re-gerar sem necessidade |
 | `dataset/work_data/dataset.jsonl` | **Artefato C** — derivado, 1 linha/registro×pergunta (não versionado) |
 | `dataset/work_data/qc.jsonl` | Métricas de qualidade por bula (não versionado) |
 | `dataset/raw_data/.../index.jsonl` | Índice de bulas coletadas (não versionado) |
-| `process_all.py` | **Deprecated** — monolítico, sofre com RPD; mantido para referência |
+| `src/process_all.py` | **Deprecated** — monolítico, sofre com RPD; mantido para referência |
 
 ---
 
