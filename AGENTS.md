@@ -7,12 +7,12 @@ Guia para agentes de IA (Claude Code, etc.) que trabalham neste repositório.
 ## Visão geral
 
 Pipeline de coleta e processamento de bulas de medicamentos da ANVISA para dataset NLP.
-Estágio atual: coleta concluída (~8.800 PDFs), pipeline em 3 estágios implementado,
-processamento LLM pendente (via Batch API).
+Estágio atual: pipeline completo. 7.930 bulas processadas → 68.938 pares pergunta/resposta
+em `dataset.jsonl`; export para parquet/HuggingFace pronto (`export.py`).
 
 ```
-collector.py → segment_all.py → enrich_all.py → build_dataset.py → dataset.jsonl
-                  (grátis)        (Batch API)       (grátis)
+collector.py → segment_all.py → enrich_all.py → build_dataset.py → export.py → HuggingFace
+                  (grátis)        (Batch API)       (grátis)        (splits + upload)
 ```
 
 ---

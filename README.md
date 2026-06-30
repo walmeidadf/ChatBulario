@@ -10,6 +10,14 @@ perguntas e respostas padronizada pela RDC 47/2009.
 Este projeto é aberto: código, dataset e modelos serão publicados para pesquisadores,
 estudantes e desenvolvedores interessados em GenAI aplicada ao domínio de saúde.
 
+O dataset é publicado no HuggingFace: [walmeidadf/ChatBulario](https://huggingface.co/datasets/walmeidadf/ChatBulario)
+— 68.938 pares pergunta/resposta de 7.930 bulas, formato flat com metadados denormalizados.
+
+```python
+from datasets import load_dataset
+ds = load_dataset("walmeidadf/ChatBulario")
+```
+
 ---
 
 ## Pipeline
@@ -28,6 +36,9 @@ dataset/work_data/meta.jsonl          metadados LLM por registro
         │
         ▼  build_dataset.py           join segments ⋈ meta  (grátis, determinístico)
 dataset/work_data/dataset.jsonl       1 linha por (registro × pergunta)
+        │
+        ▼  export.py                   splits + parquet + upload HuggingFace
+dataset/work_data/hf_dataset/*.parquet
         │
         ▼  [futuro] embeddings + vector store
 RAG / chatbot
@@ -71,6 +82,13 @@ sem limite de RPD, até 50.000 requisições por submissão, 50% de desconto, re
 
 Join `segments.jsonl ⋈ meta.jsonl` → `dataset.jsonl` no schema flat atual.
 Determinístico: sempre reescreve do zero, sempre consistente com a última segmentação.
+
+**D — Export** (`export.py`, grátis):
+
+Converte `dataset.jsonl` em parquet com splits **80/10/10 agrupados por medicamento**
+(todas as perguntas de uma bula ficam no mesmo split — sem vazamento), estratificado por
+classe terapêutica, e publica no [HuggingFace Hub](https://huggingface.co/datasets).
+O dataset card (`dataset_card.md`) é enviado como `README.md` do repositório.
 
 ### Etapa 3 — RAG / chatbot *(futuro)*
 
@@ -131,6 +149,10 @@ uv run python enrich_all.py --retrieve <id> # baixa resultado e grava meta.jsonl
 
 # C) Build do dataset final
 uv run python build_dataset.py
+
+# D) Export para parquet + publicação no HuggingFace
+uv run python export.py              # gera os parquets localmente
+uv run python export.py --upload     # gera e publica (requer HF_TOKEN no .env)
 ```
 
 ---
@@ -144,6 +166,8 @@ status.py               Mostra o progresso da coleta
 segment_all.py          Estágio A: PDF → segments.jsonl + qc.jsonl (sem LLM)
 enrich_all.py           Estágio B: segments.jsonl → meta.jsonl (OpenAI Batch API)
 build_dataset.py        Estágio C: join segments ⋈ meta → dataset.jsonl
+export.py               Estágio D: dataset.jsonl → parquet + upload HuggingFace
+dataset_card.md         Dataset card do HuggingFace (vira README.md do repo HF)
 migrate_meta.py         One-time: extrai meta do dataset.jsonl legado → meta.jsonl
 benchmark_providers.py  Compara providers LLM (qualidade, latência, custo)
 process_all.py          [deprecated] Pipeline monolítico original
@@ -166,6 +190,7 @@ dataset/                Não versionado — gerado localmente (ver Getting Start
     segments.jsonl      Artefato A: 1 linha/bula com seções segmentadas
     meta.jsonl          Artefato B: metadados LLM por registro (NUNCA re-gerar)
     dataset.jsonl       Artefato C: output final, 1 linha por registro × pergunta
+    hf_dataset/         Artefato D: train/validation/test.parquet para o HuggingFace
     qc.jsonl            Métricas de qualidade por bula
 ```
 
